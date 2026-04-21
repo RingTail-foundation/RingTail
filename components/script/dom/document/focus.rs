@@ -6,15 +6,25 @@ use std::cell::{Cell, Ref};
 
 use bitflags::bitflags;
 use embedder_traits::FocusSequenceNumber;
+use js::jsapi::JSAutoRealm;
+use script_bindings::codegen::GenericBindings::HTMLIFrameElementBinding::HTMLIFrameElementMethods;
 use script_bindings::codegen::GenericBindings::ShadowRootBinding::ShadowRootMethods;
+use script_bindings::codegen::GenericBindings::WindowBinding::WindowMethods;
 use script_bindings::inheritance::Castable;
+use script_bindings::reflector::DomObject;
 use script_bindings::root::{Dom, DomRoot};
 use script_bindings::script_runtime::CanGc;
-use servo_constellation_traits::ScriptToConstellationMessage;
+use servo_base::id::BrowsingContextId;
+use servo_constellation_traits::{
+    RemoteFocusOperation, ScriptToConstellationMessage, SequentialFocusDirection,
+};
 
 use crate::dom::bindings::cell::DomRefCell;
+use crate::dom::bindings::reflector::DomGlobal;
 use crate::dom::focusevent::FocusEventType;
-use crate::dom::types::{Element, EventTarget, FocusEvent, HTMLElement, HTMLIFrameElement, Window};
+use crate::dom::types::{
+    Element, EventTarget, FocusEvent, GlobalScope, HTMLElement, HTMLIFrameElement, Window,
+};
 use crate::dom::{Document, Event, EventBubbles, EventCancelable, Node, NodeTraits};
 
 /// The kind of focusable area a [`FocusableArea`] is. A [`FocusableArea`] may be click focusable,
@@ -510,5 +520,90 @@ impl DocumentFocusHandler {
             return;
         }
         self.focus(FocusableArea::Viewport, can_gc);
+    }
+
+    pub(crate) fn sequentially_focus_child_iframe_local_or_remote(
+        &self,
+        iframe_element: &HTMLIFrameElement,
+        direction: SequentialFocusDirection,
+        can_gc: CanGc,
+    ) {
+        if let Some(content_window) = iframe_element.GetContentDocument() {
+            // The <iframe> is in the same `ScriptThread` and we have direct access to it. We can
+            // move the focus directly.
+            let global = content_window.global();
+            let window = global.as_window();
+            let cx = GlobalScope::get_cx();
+            let _ac = JSAutoRealm::new(*cx, window.reflector().get_jsobject().get());
+            window
+                .Document()
+                .focus_handler()
+                .sequential_focus_from_another_document(None, direction, can_gc);
+        } else if let Some(browsing_context_id) = iframe_element.browsing_context_id() {
+            self.window.send_to_constellation(
+                ScriptToConstellationMessage::FocusRemoteBrowsingContext(
+                    browsing_context_id,
+                    RemoteFocusOperation::Sequential(direction, None),
+                ),
+            );
+        } else {
+            iframe_element
+                .upcast::<Node>()
+                .run_the_focusing_steps(None, can_gc);
+        }
+    }
+
+    pub(crate) fn sequentially_focus_parent_local_or_remote(
+        &self,
+        direction: SequentialFocusDirection,
+        can_gc: CanGc,
+    ) {
+        let window_proxy = self.window.window_proxy();
+        if let Some(iframe) = window_proxy.frame_element() {
+            // The parent browsing context is in the same `ScriptThread` and we have direct access
+            // to it. We can move the focus directly.
+            let window = iframe.owner_window();
+            let cx = GlobalScope::get_cx();
+            let _ac = JSAutoRealm::new(*cx, window.reflector().get_jsobject().get());
+            let browsing_context_id = iframe
+                .downcast::<HTMLIFrameElement>()
+                .and_then(|iframe_element| iframe_element.browsing_context_id());
+            window
+                .Document()
+                .focus_handler()
+                .sequential_focus_from_another_document(browsing_context_id, direction, can_gc);
+        } else if let Some(browsing_context_id) = window_proxy
+            .parent()
+            .map(|parent| parent.browsing_context_id())
+        {
+            self.window.send_to_constellation(
+                ScriptToConstellationMessage::FocusRemoteBrowsingContext(
+                    browsing_context_id,
+                    RemoteFocusOperation::Sequential(
+                        direction,
+                        Some(window_proxy.browsing_context_id()),
+                    ),
+                ),
+            );
+        }
+    }
+
+    pub(crate) fn sequential_focus_from_another_document(
+        &self,
+        browsing_context_id: Option<BrowsingContextId>,
+        direction: SequentialFocusDirection,
+        can_gc: CanGc,
+    ) {
+        let starting_point = browsing_context_id.and_then(|browsing_context_id| {
+            self.window
+                .Document()
+                .iframes()
+                .get(browsing_context_id)
+                .map(|iframe| DomRoot::from_ref(iframe.element.upcast::<Node>()))
+        });
+        self.window
+            .Document()
+            .event_handler()
+            .sequential_focus_navigation_loop(starting_point, direction, can_gc);
     }
 }
