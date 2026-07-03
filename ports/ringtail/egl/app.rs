@@ -21,9 +21,9 @@ use servo::{
 use url::Url;
 
 use crate::egl::host_trait::HostTrait;
-use crate::prefs::ServoShellPreferences;
+use crate::prefs::RingtailPreferences;
 use crate::running_app_state::{RunningAppState, UserInterfaceCommand};
-use crate::window::{PlatformWindow, ServoShellWindow, ServoShellWindowId};
+use crate::window::{PlatformWindow, RingtailWindow, RingtailWindowId};
 
 pub(crate) struct EmbeddedPlatformWindow {
     host: Rc<dyn HostTrait>,
@@ -45,7 +45,7 @@ pub(crate) struct EmbeddedPlatformWindow {
     /// The current load status of the active WebView.
     current_load_status: Cell<Option<LoadStatus>>,
 
-    id: ServoShellWindowId,
+    id: RingtailWindowId,
 }
 
 impl PlatformWindow for EmbeddedPlatformWindow {
@@ -53,7 +53,7 @@ impl PlatformWindow for EmbeddedPlatformWindow {
         Some(self)
     }
 
-    fn id(&self) -> ServoShellWindowId {
+    fn id(&self) -> RingtailWindowId {
         self.id
     }
 
@@ -85,7 +85,7 @@ impl PlatformWindow for EmbeddedPlatformWindow {
     fn update_user_interface_state(
         &self,
         state: &RunningAppState,
-        window: &ServoShellWindow,
+        window: &RingtailWindow,
     ) -> bool {
         let Some(active_webview) = window.active_webview() else {
             return false;
@@ -159,7 +159,7 @@ impl PlatformWindow for EmbeddedPlatformWindow {
         title_changed || url_changed || back_forward_changed || load_status_changed
     }
 
-    fn request_repaint(&self, window: &ServoShellWindow) {
+    fn request_repaint(&self, window: &RingtailWindow) {
         window.repaint_webviews();
     }
 
@@ -288,7 +288,7 @@ pub(crate) struct AppInitOptions {
     pub initial_url: Option<String>,
     pub opts: Opts,
     pub preferences: Preferences,
-    pub servoshell_preferences: ServoShellPreferences,
+    pub ringtail_preferences: RingtailPreferences,
     #[cfg(feature = "webxr")]
     pub xr_discovery: Option<servo::webxr::Discovery>,
 }
@@ -317,14 +317,14 @@ impl App {
 
         let initial_url = init.initial_url.and_then(|string| Url::parse(&string).ok());
         let initial_url = initial_url
-            .or_else(|| Url::parse(&init.servoshell_preferences.homepage).ok())
+            .or_else(|| Url::parse(&init.ringtail_preferences.homepage).ok())
             .or_else(|| Url::parse("about:blank").ok())
             .expect("Failed to parse initial URL");
 
         let user_content_manager = Rc::new(UserContentManager::new(&servo));
         let state = Rc::new(RunningAppState::new(
             servo,
-            init.servoshell_preferences,
+            init.ringtail_preferences,
             init.event_loop_waker,
             user_content_manager,
             init.preferences,
@@ -343,7 +343,7 @@ impl App {
         window_handle: WindowHandle,
         viewport_rect: Rect<i32, DevicePixel>,
         hidpi_scale_factor: Scale<f32, DeviceIndependentPixel, DevicePixel>,
-        window_id: Option<ServoShellWindowId>,
+        window_id: Option<RingtailWindowId>,
     ) {
         let viewport_size = viewport_rect.size;
         let refresh_driver = Rc::new(VsyncRefreshDriver::new());
@@ -356,7 +356,7 @@ impl App {
             )
             .expect("Could not create RenderingContext"),
         );
-        let id = window_id.unwrap_or(ServoShellWindowId::next());
+        let id = window_id.unwrap_or(RingtailWindowId::next());
         let platform_window = Rc::new(EmbeddedPlatformWindow {
             id,
             host: self.host.clone(),
@@ -379,11 +379,11 @@ impl App {
         &self.state.servo
     }
 
-    pub(crate) fn servoshell_preferences(&self) -> &ServoShellPreferences {
-        &self.state.servoshell_preferences
+    pub(crate) fn ringtail_preferences(&self) -> &RingtailPreferences {
+        &self.state.ringtail_preferences
     }
 
-    pub(crate) fn window(&self) -> Rc<ServoShellWindow> {
+    pub(crate) fn window(&self) -> Rc<RingtailWindow> {
         self.state
             .focused_window()
             .expect("There is always an active window")

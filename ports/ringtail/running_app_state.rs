@@ -33,10 +33,10 @@ use url::Url;
     feature = "gamepad",
     not(any(target_os = "android", target_env = "ohos"))
 ))]
-pub(crate) use crate::desktop::gamepad::ServoshellGamepadDelegate;
-use crate::prefs::{EXPERIMENTAL_PREFS, ServoShellPreferences};
+pub(crate) use crate::desktop::gamepad::RingtailGamepadDelegate;
+use crate::prefs::{EXPERIMENTAL_PREFS, RingtailPreferences};
 use crate::webdriver::WebDriverEmbedderControls;
-use crate::window::{PlatformWindow, ServoShellWindow, ServoShellWindowId};
+use crate::window::{PlatformWindow, RingtailWindow, RingtailWindowId};
 
 #[cfg(all(
     any(coverage, llvm_pgo),
@@ -169,7 +169,7 @@ pub(crate) struct RunningAppState {
         feature = "gamepad",
         not(any(target_os = "android", target_env = "ohos"))
     ))]
-    gamepad_delegate: Option<Rc<ServoshellGamepadDelegate>>,
+    gamepad_delegate: Option<Rc<RingtailGamepadDelegate>>,
 
     /// The [`WebDriverSenders`] used to reply to pending WebDriver requests.
     pub(crate) webdriver_senders: RefCell<WebDriverSenders>,
@@ -188,8 +188,8 @@ pub(crate) struct RunningAppState {
     /// was enabled.
     pub(crate) webdriver_receiver: Option<Receiver<WebDriverCommandMsg>>,
 
-    /// servoshell specific preferences created during startup of the application.
-    pub(crate) servoshell_preferences: ServoShellPreferences,
+    /// ringtail specific preferences created during startup of the application.
+    pub(crate) ringtail_preferences: RingtailPreferences,
 
     /// A handle to the Servo instance.
     pub(crate) servo: Servo,
@@ -208,31 +208,31 @@ pub(crate) struct RunningAppState {
     /// Whether the user has enabled experimental preferences.
     experimental_preferences_enabled: Cell<bool>,
 
-    /// The set of [`ServoShellWindow`]s that currently exist for this instance of servoshell.
+    /// The set of [`RingtailWindow`]s that currently exist for this instance of ringtail.
     // This is the last field of the struct to ensure that windows are dropped *after* all
     // other references to the relevant rendering contexts have been destroyed.
     // See https://github.com/servo/servo/issues/36711.
-    windows: RefCell<HashMap<ServoShellWindowId, Rc<ServoShellWindow>>>,
+    windows: RefCell<HashMap<RingtailWindowId, Rc<RingtailWindow>>>,
 
-    /// The currently focused [`ServoShellWindow`], if one is focused.
-    focused_window: RefCell<Option<Rc<ServoShellWindow>>>,
+    /// The currently focused [`RingtailWindow`], if one is focused.
+    focused_window: RefCell<Option<Rc<RingtailWindow>>>,
 
-    /// Whether accessibility is active in servoshell.
+    /// Whether accessibility is active in ringtail.
     ///
     /// Set by the platform via AccessKit, and forwarded to existing and new WebViews via
     /// [`WebView::set_accessibility_active()`], in [`Self::set_accessibility_active()`] and
-    /// and [`ServoShellWindow::create_toplevel_webview()`].
+    /// and [`RingtailWindow::create_toplevel_webview()`].
     accessibility_active: Cell<bool>,
 
     /// Temporary storage to allow calling `WebviewDelegate` methods while the
     /// `WebView` is being constructed.
-    window_of_webview_under_construction: RefCell<Option<Rc<ServoShellWindow>>>,
+    window_of_webview_under_construction: RefCell<Option<Rc<RingtailWindow>>>,
 }
 
 impl RunningAppState {
     pub(crate) fn new(
         servo: Servo,
-        servoshell_preferences: ServoShellPreferences,
+        ringtail_preferences: RingtailPreferences,
         event_loop_waker: Box<dyn EventLoopWaker>,
         user_content_manager: Rc<UserContentManager>,
         default_preferences: Preferences,
@@ -240,11 +240,11 @@ impl RunningAppState {
             feature = "gamepad",
             not(any(target_os = "android", target_env = "ohos"))
         ))]
-        gamepad_delegate: Option<Rc<ServoshellGamepadDelegate>>,
+        gamepad_delegate: Option<Rc<RingtailGamepadDelegate>>,
     ) -> Self {
-        servo.set_delegate(Rc::new(ServoShellServoDelegate));
+        servo.set_delegate(Rc::new(RingtailServoDelegate));
 
-        let webdriver_receiver = servoshell_preferences.webdriver_port.get().map(|port| {
+        let webdriver_receiver = ringtail_preferences.webdriver_port.get().map(|port| {
             let (embedder_sender, embedder_receiver) = unbounded();
             webdriver_server::start_server(
                 port,
@@ -256,7 +256,7 @@ impl RunningAppState {
         });
 
         let experimental_preferences_enabled =
-            Cell::new(servoshell_preferences.experimental_preferences_enabled);
+            Cell::new(ringtail_preferences.experimental_preferences_enabled);
 
         Self {
             windows: Default::default(),
@@ -270,7 +270,7 @@ impl RunningAppState {
             webdriver_embedder_controls: Default::default(),
             pending_webdriver_events: Default::default(),
             webdriver_receiver,
-            servoshell_preferences,
+            ringtail_preferences,
             servo,
             achieved_stable_image: Default::default(),
             exit_scheduled: Default::default(),
@@ -285,8 +285,8 @@ impl RunningAppState {
         self: &Rc<Self>,
         platform_window: Rc<dyn PlatformWindow>,
         initial_url: Url,
-    ) -> Rc<ServoShellWindow> {
-        let window = Rc::new(ServoShellWindow::new(platform_window.clone()));
+    ) -> Rc<RingtailWindow> {
+        let window = Rc::new(RingtailWindow::new(platform_window.clone()));
         self.windows
             .borrow_mut()
             .insert(window.id(), window.clone());
@@ -302,21 +302,21 @@ impl RunningAppState {
 
     pub(crate) fn windows<'a>(
         &'a self,
-    ) -> Ref<'a, HashMap<ServoShellWindowId, Rc<ServoShellWindow>>> {
+    ) -> Ref<'a, HashMap<RingtailWindowId, Rc<RingtailWindow>>> {
         self.windows.borrow()
     }
 
-    pub(crate) fn focused_window(&self) -> Option<Rc<ServoShellWindow>> {
+    pub(crate) fn focused_window(&self) -> Option<Rc<RingtailWindow>> {
         self.focused_window.borrow().clone()
     }
 
-    pub(crate) fn focus_window(&self, window: Rc<ServoShellWindow>) {
+    pub(crate) fn focus_window(&self, window: Rc<RingtailWindow>) {
         window.focus();
         *self.focused_window.borrow_mut() = Some(window);
     }
 
     #[cfg_attr(any(target_os = "android", target_env = "ohos"), expect(dead_code))]
-    pub(crate) fn window(&self, id: ServoShellWindowId) -> Option<Rc<ServoShellWindow>> {
+    pub(crate) fn window(&self, id: RingtailWindowId) -> Option<Rc<RingtailWindow>> {
         self.windows.borrow().get(&id).cloned()
     }
 
@@ -337,7 +337,7 @@ impl RunningAppState {
         feature = "gamepad",
         not(any(target_os = "android", target_env = "ohos"))
     ))]
-    pub(crate) fn gamepad_delegate(&self) -> Option<Rc<ServoshellGamepadDelegate>> {
+    pub(crate) fn gamepad_delegate(&self) -> Option<Rc<RingtailGamepadDelegate>> {
         self.gamepad_delegate.clone()
     }
 
@@ -347,7 +347,7 @@ impl RunningAppState {
         // Note that when not explicitly required to shutdown, we still keep Servo alive
         // when all tabs are closed when `webdriver_port` enabled, which is necessary
         // to run wpt test using servodriver.
-        self.servoshell_preferences.webdriver_port.set(None);
+        self.ringtail_preferences.webdriver_port.set(None);
         self.exit_scheduled.set(true);
 
         #[cfg(all(
@@ -389,7 +389,7 @@ impl RunningAppState {
         }
     }
 
-    /// Close any [`ServoShellWindow`] that doesn't have an open [`WebView`].
+    /// Close any [`RingtailWindow`] that doesn't have an open [`WebView`].
     fn close_empty_windows(&self) {
         self.windows.borrow_mut().retain(|_, window| {
             if !self.exit_scheduled.get() && !window.should_close() {
@@ -438,7 +438,7 @@ impl RunningAppState {
             window.update_and_request_repaint_if_necessary(self);
         }
 
-        if self.servoshell_preferences.exit_after_stable_image && self.achieved_stable_image.get() {
+        if self.ringtail_preferences.exit_after_stable_image && self.achieved_stable_image.get() {
             self.schedule_exit();
         }
 
@@ -446,7 +446,7 @@ impl RunningAppState {
 
         // When no more windows are open, exit the application. Do not do this when
         // running WebDriver, which expects to keep running with no WebView open.
-        if self.servoshell_preferences.webdriver_port.get().is_none() &&
+        if self.ringtail_preferences.webdriver_port.get().is_none() &&
             self.windows.borrow().is_empty()
         {
             self.schedule_exit()
@@ -458,7 +458,7 @@ impl RunningAppState {
     pub(crate) fn maybe_window_for_webview_id(
         &self,
         webview_id: WebViewId,
-    ) -> Option<Rc<ServoShellWindow>> {
+    ) -> Option<Rc<RingtailWindow>> {
         for window in self.windows.borrow().values() {
             if window.contains_webview(webview_id) {
                 return Some(window.clone());
@@ -467,13 +467,13 @@ impl RunningAppState {
         None
     }
 
-    pub(crate) fn window_for_webview_id(&self, webview_id: WebViewId) -> Rc<ServoShellWindow> {
+    pub(crate) fn window_for_webview_id(&self, webview_id: WebViewId) -> Rc<RingtailWindow> {
         self.maybe_window_for_webview_id(webview_id)
             .or_else(|| self.window_of_webview_under_construction.borrow().clone())
             .unwrap_or_else(|| panic!("Looking for unexpected WebView: {webview_id:?}"))
     }
 
-    pub(crate) fn set_window_for_webview_construction(&self, window: Option<Rc<ServoShellWindow>>) {
+    pub(crate) fn set_window_for_webview_construction(&self, window: Option<Rc<RingtailWindow>>) {
         *self.window_of_webview_under_construction.borrow_mut() = window;
     }
 
@@ -487,8 +487,8 @@ impl RunningAppState {
     /// If we are exiting after achieving a stable image or we want to save the display of the
     /// [`WebView`] to an image file, request a screenshot of the [`WebView`].
     fn maybe_request_screenshot(&self, webview: WebView) {
-        let output_path = self.servoshell_preferences.output_image_path.clone();
-        if !self.servoshell_preferences.exit_after_stable_image && output_path.is_none() {
+        let output_path = self.ringtail_preferences.output_image_path.clone();
+        if !self.ringtail_preferences.exit_after_stable_image && output_path.is_none() {
             return;
         }
 
@@ -654,7 +654,7 @@ impl RunningAppState {
     }
 
     #[cfg(not(any(target_os = "android", target_env = "ohos")))]
-    pub(crate) fn handle_focused(&self, window: Rc<ServoShellWindow>) {
+    pub(crate) fn handle_focused(&self, window: Rc<RingtailWindow>) {
         *self.focused_window.borrow_mut() = Some(window);
     }
 
@@ -775,7 +775,7 @@ impl WebViewDelegate for RunningAppState {
         // When WebDriver is enabled, do not focus and raise the WebView to the top,
         // as that is what the specification expects. Otherwise, we would like `window.open()`
         // to create a new foreground tab
-        if self.servoshell_preferences.webdriver_port.get().is_none() {
+        if self.ringtail_preferences.webdriver_port.get().is_none() {
             window.activate_webview(webview.id());
         } else {
             webview.hide();
@@ -845,7 +845,7 @@ impl WebViewDelegate for RunningAppState {
     }
 
     fn show_embedder_control(&self, webview: WebView, embedder_control: EmbedderControl) {
-        if self.servoshell_preferences.webdriver_port.get().is_some() {
+        if self.ringtail_preferences.webdriver_port.get().is_some() {
             if matches!(&embedder_control, EmbedderControl::SimpleDialog(..)) {
                 self.interrupt_webdriver_script_evaluation();
 
@@ -870,7 +870,7 @@ impl WebViewDelegate for RunningAppState {
     }
 
     fn hide_embedder_control(&self, webview: WebView, embedder_control_id: EmbedderControlId) {
-        if self.servoshell_preferences.webdriver_port.get().is_some() {
+        if self.ringtail_preferences.webdriver_port.get().is_some() {
             self.webdriver_embedder_controls
                 .hide_embedder_control(webview.id(), embedder_control_id);
             return;
@@ -910,8 +910,8 @@ impl WebViewDelegate for RunningAppState {
     }
 }
 
-struct ServoShellServoDelegate;
-impl ServoDelegate for ServoShellServoDelegate {
+struct RingtailServoDelegate;
+impl ServoDelegate for RingtailServoDelegate {
     fn notify_devtools_server_started(&self, port: u16, _token: String) {
         info!("Devtools Server running on port {port}");
     }

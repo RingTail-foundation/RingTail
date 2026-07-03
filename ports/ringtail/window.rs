@@ -30,28 +30,28 @@ pub(crate) const LINE_WIDTH: f32 = 76.0;
 #[cfg_attr(any(target_os = "android", target_env = "ohos"), expect(dead_code))]
 pub(crate) const MIN_WINDOW_INNER_SIZE: DeviceIntSize = DeviceIntSize::new(100, 100);
 
-static SERVOSHELL_WINDOW_ID: AtomicU64 = AtomicU64::new(0);
+static RINGTAIL_WINDOW_ID: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
-pub(crate) struct ServoShellWindowId(u64);
+pub(crate) struct RingtailWindowId(u64);
 
-impl From<u64> for ServoShellWindowId {
+impl From<u64> for RingtailWindowId {
     fn from(value: u64) -> Self {
         Self(value)
     }
 }
 
-impl ServoShellWindowId {
+impl RingtailWindowId {
     #[cfg_attr(not(any(target_os = "android", target_env = "ohos")), expect(unused))]
-    pub(crate) fn next() -> ServoShellWindowId {
-        ServoShellWindowId(SERVOSHELL_WINDOW_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst))
+    pub(crate) fn next() -> RingtailWindowId {
+        RingtailWindowId(RINGTAIL_WINDOW_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst))
     }
 }
 
-pub(crate) struct ServoShellWindow {
+pub(crate) struct RingtailWindow {
     /// The [`WebView`]s that have been added to this window.
     pub(crate) webview_collection: RefCell<WebViewCollection>,
-    /// A handle to the [`PlatformWindow`] that servoshell is rendering in.
+    /// A handle to the [`PlatformWindow`] that ringtail is rendering in.
     platform_window: Rc<dyn PlatformWindow>,
     /// Whether or not this window should be closed at the end of the spin of the next event loop.
     close_scheduled: Cell<bool>,
@@ -67,7 +67,7 @@ pub(crate) struct ServoShellWindow {
     pending_commands: RefCell<Vec<UserInterfaceCommand>>,
 }
 
-impl ServoShellWindow {
+impl RingtailWindow {
     pub(crate) fn new(platform_window: Rc<dyn PlatformWindow>) -> Self {
         Self {
             webview_collection: Default::default(),
@@ -80,7 +80,7 @@ impl ServoShellWindow {
         }
     }
 
-    pub(crate) fn id(&self) -> ServoShellWindowId {
+    pub(crate) fn id(&self) -> RingtailWindowId {
         self.platform_window().id()
     }
 
@@ -155,7 +155,7 @@ impl ServoShellWindow {
         self.platform_window().rendering_context().present();
     }
 
-    /// Whether or not this [`ServoShellWindow`] has any [`WebView`]s.
+    /// Whether or not this [`RingtailWindow`] has any [`WebView`]s.
     pub(crate) fn should_close(&self) -> bool {
         self.webview_collection.borrow().is_empty() || self.close_scheduled.get()
     }
@@ -334,7 +334,7 @@ impl ServoShellWindow {
                     self.set_needs_update();
                     let Some(url) = location_bar_input_to_url(
                         &location.clone(),
-                        &state.servoshell_preferences.searchpage,
+                        &state.ringtail_preferences.searchpage,
                     ) else {
                         warn!("failed to parse location");
                         break;
@@ -369,7 +369,7 @@ impl ServoShellWindow {
                 },
                 UserInterfaceCommand::NewWebView => {
                     self.set_needs_update();
-                    let url = Url::parse("servo:newtab").expect("Should always be able to parse");
+                    let url = Url::parse("ringtail:newtab").expect("Should always be able to parse");
                     self.create_and_activate_toplevel_webview(state.clone(), url);
                 },
                 UserInterfaceCommand::CloseWebView(id) => {
@@ -378,7 +378,7 @@ impl ServoShellWindow {
                 },
                 UserInterfaceCommand::NewWindow => {
                     if let Some(create_platform_window) = create_platform_window {
-                        let url = Url::parse("servo:newtab").unwrap();
+                        let url = Url::parse("ringtail:newtab").unwrap();
                         let platform_window = create_platform_window(url.clone());
                         state.open_window(platform_window, url);
                     }
@@ -389,10 +389,10 @@ impl ServoShellWindow {
 }
 
 /// A `PlatformWindow` abstracts away the differents kinds of platform windows that might
-/// be used in a servoshell execution. This currently includes headed (winit) and headless
+/// be used in a ringtail execution. This currently includes headed (winit) and headless
 /// windows.
 pub(crate) trait PlatformWindow {
-    fn id(&self) -> ServoShellWindowId;
+    fn id(&self) -> RingtailWindowId;
     fn screen_geometry(&self) -> ScreenGeometry;
     #[cfg_attr(any(target_os = "android", target_env = "ohos"), expect(dead_code))]
     fn device_hidpi_scale_factor(&self) -> Scale<f32, DeviceIndependentPixel, DevicePixel>;
@@ -402,13 +402,13 @@ pub(crate) trait PlatformWindow {
     /// Inform the `Window` that the state of a `WebView` has changed and that it should
     /// do an incremental update of user interface state. Returns `true` if the user
     /// interface actually changed and a rebuild  and repaint is needed, `false` otherwise.
-    fn update_user_interface_state(&self, _: &RunningAppState, _: &ServoShellWindow) -> bool {
+    fn update_user_interface_state(&self, _: &RunningAppState, _: &RingtailWindow) -> bool {
         false
     }
     /// Request that the window redraw itself. It is up to the window to do this
     /// once the windowing system is ready. If this is a headless window, the redraw
     /// will happen immediately.
-    fn request_repaint(&self, _: &ServoShellWindow);
+    fn request_repaint(&self, _: &RingtailWindow);
     /// Request a new outer size for the window, including external decorations.
     /// This should be the same as `window.outerWidth` and `window.outerHeight``
     fn request_resize(&self, webview: &WebView, outer_size: DeviceIntSize)
